@@ -11,7 +11,6 @@ from docx import Document
 from google import genai
 from google.genai import types
 
-# Updated model name to match the latest API requirements
 MODEL_NAME = "gemini-3.8-flash"
 MAX_FILE_MB = 15
 
@@ -172,26 +171,37 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
         data["overall_match"] = "No"
     return data
 
-with st.form("criteria_form"):
-    st.subheader("1. Enter job requirements")
-    required_education = st.text_input(
-        "Required Education", placeholder="e.g. Bachelor's degree in Computer Science"
-    )
-    minimum_years = st.number_input(
-        "Minimum Years of Experience", min_value=0, max_value=50, value=0, step=1
-    )
-    relevant_experience = st.text_area(
-        "Relevant Experience", placeholder="e.g. At least 2 years of Python backend development"
-    )
-    preferred_qualifications = st.text_area(
-        "Preferred Qualifications", placeholder="e.g. AWS certification, Django experience"
-    )
-    other_preferences = st.text_area(
-        "Other Job-Related Preferences", placeholder="e.g. Experience working with Agile teams"
-    )
-    submitted = st.form_submit_button("Save criteria", type="primary")
+# --- UI INTERFACE ---
+st.subheader("1. Enter job requirements")
+required_education = st.text_input(
+    "Required Education", 
+    value=st.session_state.get("req_edu", "Bachelor's degree in Computer Science"),
+    key="input_req_edu"
+)
+minimum_years = st.number_input(
+    "Minimum Years of Experience", 
+    min_value=0, max_value=50, 
+    value=st.session_state.get("req_min_yrs", 0), 
+    step=1,
+    key="input_min_yrs"
+)
+relevant_experience = st.text_area(
+    "Relevant Experience", 
+    value=st.session_state.get("req_rel_exp", "At least 2 years of Python backend development"),
+    key="input_rel_exp"
+)
+preferred_qualifications = st.text_area(
+    "Preferred Qualifications", 
+    value=st.session_state.get("req_pref", "AWS certification, Django experience"),
+    key="input_pref"
+)
+other_preferences = st.text_area(
+    "Other Job-Related Preferences", 
+    value=st.session_state.get("req_other", "Experience working with Agile teams"),
+    key="input_other"
+)
 
-if submitted:
+if st.button("Save criteria", type="primary"):
     st.session_state["criteria"] = {
         "required_education": required_education.strip() or "No specific education requirement",
         "minimum_years_experience": int(minimum_years),
@@ -199,11 +209,14 @@ if submitted:
         "preferred_qualifications": preferred_qualifications.strip() or "None",
         "other_job_related_preferences": other_preferences.strip() or "None",
     }
-    st.success("Criteria saved. Upload CVs below.")
+    st.success("Criteria saved successfully! Upload CVs below.")
 
-criteria = st.session_state.get("criteria")
-if criteria:
-    with st.expander("Review saved criteria", expanded=False):
-        st.json(criteria)
-
-    st.subheader("2. Upload multiple CVs")
+# Always default criteria if not explicitly set yet so the uploader stays visible
+if "criteria" not in st.session_state:
+    st.session_state["criteria"] = {
+        "required_education": required_education.strip() or "No specific education requirement",
+        "minimum_years_experience": int(minimum_years),
+        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
+        "preferred_qualifications": preferred_qualifications.strip() or "None",
+        "other_job_related_preferences": other_preferences.strip() or "None",
+    }
