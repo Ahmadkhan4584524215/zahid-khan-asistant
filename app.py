@@ -17,7 +17,7 @@ from google.genai import types
 # ---------------------------------------------------------
 # FIXED MODEL NAME: Using gemini-2.5-flash to prevent 404 errors
 # ---------------------------------------------------------
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.8-flash"
 MAX_FILE_MB = 15
 
 st.set_page_config(page_title="AI CV Screening", page_icon="📄", layout="wide")
