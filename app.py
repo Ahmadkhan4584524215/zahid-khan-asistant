@@ -127,14 +127,15 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
     if not cv_text.strip():
         raise ValueError("No readable text was found in this file.")
     
-    max_retries = 3
-    delay = 2
+    # List of models to try in order of preference
+    models_to_try = [MODEL_NAME, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     response = None
+    last_exception = None
     
-    for attempt in range(max_retries):
+    for model in models_to_try:
         try:
             response = client.models.generate_content(
-                model=MODEL_NAME,
+                model=model,
                 contents=build_prompt(criteria, cv_text, filename),
                 config=types.GenerateContentConfig(
                     temperature=0.1,
@@ -142,13 +143,13 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
                     max_output_tokens=1200,
                 ),
             )
-            break
+            break # Success, exit loop
         except Exception as e:
-            if ("503" in str(e) or "429" in str(e)) and attempt < max_retries - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            raise e
+            last_exception = e
+            continue # Try next model if 404 or 503 occurs
+            
+    if response is None:
+        raise last_exception
 
     raw = response.text or ""
     match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
