@@ -11,8 +11,10 @@ from docx import Document
 from google import genai
 from google.genai import types
 
-# Switched to a stable production model
-MODEL_NAME = "gemini-3.8-flash"
+# ---------------------------------------------------------
+# FIXED MODEL NAME: Using gemini-2.5-flash to prevent 404 errors
+# ---------------------------------------------------------
+MODEL_NAME = "gemini-2.5-flash"
 MAX_FILE_MB = 15
 
 st.set_page_config(page_title="AI CV Screening", page_icon="📄", layout="wide")
@@ -127,15 +129,14 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
     if not cv_text.strip():
         raise ValueError("No readable text was found in this file.")
     
-    # List of models to try in order of preference
-    models_to_try = [MODEL_NAME, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    max_retries = 3
+    delay = 2
     response = None
-    last_exception = None
     
-    for model in models_to_try:
+    for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model=model,
+                model=MODEL_NAME,
                 contents=build_prompt(criteria, cv_text, filename),
                 config=types.GenerateContentConfig(
                     temperature=0.1,
@@ -143,13 +144,13 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
                     max_output_tokens=1200,
                 ),
             )
-            break # Success, exit loop
+            break
         except Exception as e:
-            last_exception = e
-            continue # Try next model if 404 or 503 occurs
-            
-    if response is None:
-        raise last_exception
+            if ("503" in str(e) or "429" in str(e)) and attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise e
 
     raw = response.text or ""
     match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
