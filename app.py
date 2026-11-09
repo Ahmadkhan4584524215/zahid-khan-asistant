@@ -2,6 +2,7 @@ import io
 import json
 import re
 import os
+import time
 from typing import Any
 
 import streamlit as st
@@ -10,7 +11,8 @@ from docx import Document
 from google import genai
 from google.genai import types
 
-MODEL_NAME = "gemini-3.8-flash"
+# Updated model name to resolve availability/high demand errors
+MODEL_NAME = "gemini-2.5-flash"  # You can also use "gemini-1.5-flash" if preferred
 MAX_FILE_MB = 15
 
 st.set_page_config(page_title="AI CV Screening", page_icon="📄", layout="wide")
@@ -47,7 +49,6 @@ def extract_docx(uploaded_file) -> str:
     return "\n".join(parts).strip()
 
 def extract_doc(uploaded_file) -> str:
-    # Legacy .doc files require the antiword command to be installed on the host.
     import subprocess
     import tempfile
     with tempfile.NamedTemporaryFile(suffix=".doc", delete=True) as temp:
@@ -125,17 +126,32 @@ Rules:
 def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str, Any]:
     if not cv_text.strip():
         raise ValueError("No readable text was found in this file.")
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=build_prompt(criteria, cv_text, filename),
-        config=types.GenerateContentConfig(
-            temperature=0.1,
-            response_mime_type="application/json",
-            max_output_tokens=1200,
-        ),
-    )
+    
+    # Retry mechanism to handle transient 503 high demand errors gracefully
+    max_retries = 3
+    delay = 2
+    response = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=build_prompt(criteria, cv_text, filename),
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    max_output_tokens=1200,
+                ),
+            )
+            break
+        except Exception as e:
+            if "503" in str(e) and attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2  # Exponential backoff
+                continue
+            raise e
+
     raw = response.text or ""
-    # Defensive extraction in case the model wraps JSON in markdown.
     match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
     if not match:
         raise ValueError("The AI returned an unreadable result. Please retry this CV.")
@@ -154,110 +170,3 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
     if data["overall_match"] not in {"Yes", "No"}:
         data["overall_match"] = "No"
     return data
-
-with st.form("criteria_form"):
-    st.subheader("1. Enter job requirements")
-    required_education = st.text_input(
-        "Required Education", placeholder="e.g. Bachelor's degree in Computer Science"
-    )
-    minimum_years = st.number_input(
-        "Minimum Years of Experience", min_value=0, max_value=50, value=0, step=1
-    )
-    relevant_experience = st.text_area(
-        "Relevant Experience", placeholder="e.g. At least 2 years of Python backend development"
-    )
-    preferred_qualifications = st.text_area(
-        "Preferred Qualifications", placeholder="e.g. AWS certification, Django experience"
-    )
-    other_preferences = st.text_area(
-        "Other Job-Related Preferences", placeholder="e.g. Experience working with Agile teams"
-    )
-    submitted = st.form_submit_button("Save criteria", type="primary")
-
-if submitted:
-    st.session_state["criteria"] = {
-        "required_education": required_education.strip() or "No specific education requirement",
-        "minimum_years_experience": int(minimum_years),
-        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
-        "preferred_qualifications": preferred_qualifications.strip() or "None",
-        "other_job_related_preferences": other_preferences.strip() or "None",
-    }
-    st.success("Criteria saved. Upload CVs below.")
-
-criteria = st.session_state.get("criteria")
-if criteria:
-    with st.expander("Review saved criteria", expanded=False):
-        st.json(criteria)
-
-    st.subheader("2. Upload multiple CVs")
-    files = st.file_uploader(
-        "Choose CV files (PDF, DOC, DOCX)",
-        type=["pdf", "doc", "docx"],
-        accept_multiple_files=True,
-        help=f"Maximum {MAX_FILE_MB} MB per file. CVs are processed one by one.",
-    )
-    if files and st.button("Analyse CVs", type="primary"):
-        api_key = get_api_key()
-        if not api_key:
-            st.error("Gemini API key is missing. Add GEMINI_API_KEY to .streamlit/secrets.toml or your environment.")
-            st.stop()
-
-        client = genai.Client(api_key=api_key)
-        results = []
-        errors = []
-        progress = st.progress(0)
-        status = st.empty()
-
-        for index, uploaded in enumerate(files):
-            status.write(f"Analysing {uploaded.name} ({index + 1}/{len(files)})...")
-            if uploaded.size > MAX_FILE_MB * 1024 * 1024:
-                errors.append({"File": uploaded.name, "Error": f"File exceeds {MAX_FILE_MB} MB."})
-                progress.progress((index + 1) / len(files))
-                continue
-            try:
-                text = read_cv(uploaded)
-                result = analyse_cv(client, criteria, text, uploaded.name)
-                result["file_name"] = uploaded.name
-                results.append(result)
-            except Exception as exc:
-                errors.append({"File": uploaded.name, "Error": str(exc)})
-            progress.progress((index + 1) / len(files))
-
-        status.success("Analysis finished.")
-        if results:
-            st.subheader("3. Candidate evaluation")
-            rows = []
-            for item in results:
-                rows.append({
-                    "Candidate Name": item.get("candidate_name", "Not Found"),
-                    "Education": item.get("education", "Not Found"),
-                    "Total Experience (Years)": item.get("total_experience_years", "Not Found"),
-                    "Relevant Experience": item.get("relevant_experience", "Not Found"),
-                    "Preferences": item.get("preferences", "Not Found"),
-                    "Overall Criteria Match": item.get("overall_match", "No"),
-                    "CV File": item.get("file_name", ""),
-                })
-            st.dataframe(rows, use_container_width=True, hide_index=True)
-            st.caption("A 'No' can mean required evidence was missing; read each explanation before making any decision.")
-
-            st.subheader("Candidate details and evidence")
-            for item in results:
-                label = f"{item.get('candidate_name', 'Not Found')} — {item.get('file_name', '')}"
-                with st.expander(label):
-                    st.write("**Reason:**", item.get("reason", "Not Found"))
-                    st.write("**Evidence from CV:**")
-                    st.json(item.get("evidence", {}))
-            csv = __import__("pandas").DataFrame(rows).to_csv(index=False).encode("utf-8-sig")
-            st.download_button("Download results as CSV", csv, "cv_screening_results.csv", "text/csv")
-
-        if errors:
-            st.subheader("Files that could not be analysed")
-            st.dataframe(errors, use_container_width=True, hide_index=True)
-
-        st.info(
-            "Privacy reminder: CVs contain personal data. Get appropriate permission, restrict access, "
-            "avoid uploading unnecessary personal information, and follow applicable privacy and employment laws. "
-            "This demo does not retain CV files in a database, but files are sent to Google's Gemini API for analysis."
-        )
-else:
-    st.info("Enter and save the job criteria first. The CV uploader will appear after that.")
