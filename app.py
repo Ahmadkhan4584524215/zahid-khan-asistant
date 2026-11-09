@@ -4,7 +4,7 @@ import re
 import os
 os.environ["GOOGLE_GENAI_API_VERSION"] = "v1beta"
 
-MODEL_NAME = "gemini-2.5-flash"  # or gemini-1.5-flash
+MODEL_NAME = "gemini-3.8-flash"  # or gemini-1.5-flash
 import time
 from typing import Any
 
