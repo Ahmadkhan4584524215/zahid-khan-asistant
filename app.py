@@ -157,4 +157,4 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
     data = json.loads(match.group(0))
     required = [
         "candidate_name", "education", "total_experience_years",
-        "relevant_experience", "preferences", "
+        "relevant_experience", "preferences"
