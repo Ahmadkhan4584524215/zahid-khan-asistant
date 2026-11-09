@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 # Switched to a stable production model
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.5-flash"
 MAX_FILE_MB = 15
 
 st.set_page_config(page_title="AI CV Screening", page_icon="📄", layout="wide")
