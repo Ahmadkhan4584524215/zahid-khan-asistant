@@ -11,7 +11,6 @@ from docx import Document
 from google import genai
 from google.genai import types
 
-# Updated model name to match the latest API requirements
 MODEL_NAME = "gemini-3.8-flash"
 MAX_FILE_MB = 15
 
@@ -144,4 +143,160 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
             )
             break
         except Exception as e:
-            if ("503" in str(e) or "429" in str(e)) and attempt
+            if ("503" in str(e) or "429" in str(e)) and attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise e
+
+    raw = response.text or ""
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not match:
+        raise ValueError("The AI returned an unreadable result. Please retry this CV.")
+    data = json.loads(match.group(0))
+    
+    required = [
+        "candidate_name", "education", "total_experience_years",
+        "relevant_experience", "preferences", "overall_match", "reason", "evidence"
+    ]
+    
+    for field in required:
+        if field not in data:
+            data[field] = "Not Found"
+    allowed = {"Matched", "Not Matched", "Not Found"}
+    for field in ("education", "relevant_experience", "preferences"):
+        if data[field] not in allowed:
+            data[field] = "Not Found"
+    if data["overall_match"] not in {"Yes", "No"}:
+        data["overall_match"] = "No"
+    return data
+
+# --- UI INTERFACE ---
+st.subheader("1. Enter job requirements")
+required_education = st.text_input(
+    "Required Education", 
+    value="Bachelor's degree in Computer Science",
+    key="input_req_edu"
+)
+minimum_years = st.number_input(
+    "Minimum Years of Experience", 
+    min_value=0, max_value=50, 
+    value=0, 
+    step=1,
+    key="input_min_yrs"
+)
+relevant_experience = st.text_area(
+    "Relevant Experience", 
+    value="At least 2 years of Python backend development",
+    key="input_rel_exp"
+)
+preferred_qualifications = st.text_area(
+    "Preferred Qualifications", 
+    value="AWS certification, Django experience",
+    key="input_pref"
+)
+other_preferences = st.text_area(
+    "Other Job-Related Preferences", 
+    value="Experience working with Agile teams",
+    key="input_other"
+)
+
+if st.button("Save criteria", type="primary"):
+    st.session_state["criteria"] = {
+        "required_education": required_education.strip() or "No specific education requirement",
+        "minimum_years_experience": int(minimum_years),
+        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
+        "preferred_qualifications": preferred_qualifications.strip() or "None",
+        "other_job_related_preferences": other_preferences.strip() or "None",
+    }
+    st.success("Criteria saved successfully! Upload CVs below.")
+
+# Always default criteria if not explicitly set yet so the uploader stays visible
+if "criteria" not in st.session_state:
+    st.session_state["criteria"] = {
+        "required_education": required_education.strip() or "No specific education requirement",
+        "minimum_years_experience": int(minimum_years),
+        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
+        "preferred_qualifications": preferred_qualifications.strip() or "None",
+        "other_job_related_preferences": other_preferences.strip() or "None",
+    }
+
+criteria = st.session_state["criteria"]
+
+st.markdown("---")
+st.subheader("2. Upload multiple CVs")
+files = st.file_uploader(
+    "Choose CV files (PDF, DOC, DOCX)",
+    type=["pdf", "doc", "docx"],
+    accept_multiple_files=True,
+    help=f"Maximum {MAX_FILE_MB} MB per file. CVs are processed one by one.",
+)
+
+if files and st.button("Analyse CVs", type="primary"):
+    api_key = get_api_key()
+    if not api_key:
+        st.error("Gemini API key is missing. Add GEMINI_API_KEY to .streamlit/secrets.toml or your environment.")
+        st.stop()
+
+    client = genai.Client(api_key=api_key)
+    results = []
+    errors = []
+    progress = st.progress(0)
+    status = st.empty()
+
+    for index, uploaded in enumerate(files):
+        status.write(f"Analysing {uploaded.name} ({index + 1}/{len(files)})...")
+        if uploaded.size > MAX_FILE_MB * 1024 * 1024:
+            errors.append({"File": uploaded.name, "Error": f"File exceeds {MAX_FILE_MB} MB."})
+            progress.progress((index + 1) / len(files))
+            continue
+        try:
+            text = read_cv(uploaded)
+            result = analyse_cv(client, criteria, text, uploaded.name)
+            result["file_name"] = uploaded.name
+            results.append(result)
+        except Exception as exc:
+            import traceback
+            full_error = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            errors.append({"File": uploaded.name, "Error": str(exc), "Traceback": full_error})
+        progress.progress((index + 1) / len(files))
+
+    status.success("Analysis finished.")
+    if results:
+        st.subheader("3. Candidate evaluation")
+        rows = []
+        for item in results:
+            rows.append({
+                "Candidate Name": item.get("candidate_name", "Not Found"),
+                "Education": item.get("education", "Not Found"),
+                "Total Experience (Years)": item.get("total_experience_years", "Not Found"),
+                "Relevant Experience": item.get("relevant_experience", "Not Found"),
+                "Preferences": item.get("preferences", "Not Found"),
+                "Overall Criteria Match": item.get("overall_match", "No"),
+                "CV File": item.get("file_name", ""),
+            })
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.caption("A 'No' can mean required evidence was missing; read each explanation before making any decision.")
+
+        st.subheader("Candidate details and evidence")
+        for item in results:
+            label = f"{item.get('candidate_name', 'Not Found')} — {item.get('file_name', '')}"
+            with st.expander(label):
+                st.write("**Reason:**", item.get("reason", "Not Found"))
+                st.write("**Evidence from CV:**")
+                st.json(item.get("evidence", {}))
+        csv = __import__("pandas").DataFrame(rows).to_csv(index=False).encode("utf-8-sig")
+        st.download_button("Download results as CSV", csv, "cv_screening_results.csv", "text/csv")
+
+    if errors:
+        st.subheader("Files that could not be analysed (Errors)")
+        st.dataframe(errors, use_container_width=True, hide_index=True)
+        for err in errors:
+            with st.expander(f"Error details: {err['File']}"):
+                st.code(err.get("Traceback", err["Error"]))
+
+    st.info(
+        "Privacy reminder: CVs contain personal data. Get appropriate permission, restrict access, "
+        "avoid uploading unnecessary personal information, and follow applicable privacy and employment laws. "
+        "This demo does not retain CV files in a database, but files are sent to Google's Gemini API for analysis."
+    )
