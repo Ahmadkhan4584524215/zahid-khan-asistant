@@ -11,6 +11,7 @@ from docx import Document
 from google import genai
 from google.genai import types
 
+# Switched to a stable production model
 MODEL_NAME = "gemini-1.5-flash"
 MAX_FILE_MB = 15
 
@@ -211,7 +212,6 @@ if st.button("Save criteria", type="primary"):
     }
     st.success("Criteria saved successfully! Upload CVs below.")
 
-# Always default criteria if not explicitly set yet so the uploader stays visible
 if "criteria" not in st.session_state:
     st.session_state["criteria"] = {
         "required_education": required_education.strip() or "No specific education requirement",
