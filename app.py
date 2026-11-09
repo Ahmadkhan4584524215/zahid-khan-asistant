@@ -11,6 +11,7 @@ from docx import Document
 from google import genai
 from google.genai import types
 
+# Updated model name to match the latest API requirements
 MODEL_NAME = "gemini-3.8-flash"
 MAX_FILE_MB = 15
 
@@ -143,80 +144,4 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
             )
             break
         except Exception as e:
-            if ("503" in str(e) or "429" in str(e)) and attempt < max_retries - 1:
-                time.sleep(delay)
-                delay *= 2
-                continue
-            raise e
-
-    raw = response.text or ""
-    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
-    if not match:
-        raise ValueError("The AI returned an unreadable result. Please retry this CV.")
-    data = json.loads(match.group(0))
-    
-    required = [
-        "candidate_name", "education", "total_experience_years",
-        "relevant_experience", "preferences", "overall_match", "reason", "evidence"
-    ]
-    
-    for field in required:
-        if field not in data:
-            data[field] = "Not Found"
-    allowed = {"Matched", "Not Matched", "Not Found"}
-    for field in ("education", "relevant_experience", "preferences"):
-        if data[field] not in allowed:
-            data[field] = "Not Found"
-    if data["overall_match"] not in {"Yes", "No"}:
-        data["overall_match"] = "No"
-    return data
-
-# --- UI INTERFACE ---
-st.subheader("1. Enter job requirements")
-required_education = st.text_input(
-    "Required Education", 
-    value=st.session_state.get("req_edu", "Bachelor's degree in Computer Science"),
-    key="input_req_edu"
-)
-minimum_years = st.number_input(
-    "Minimum Years of Experience", 
-    min_value=0, max_value=50, 
-    value=st.session_state.get("req_min_yrs", 0), 
-    step=1,
-    key="input_min_yrs"
-)
-relevant_experience = st.text_area(
-    "Relevant Experience", 
-    value=st.session_state.get("req_rel_exp", "At least 2 years of Python backend development"),
-    key="input_rel_exp"
-)
-preferred_qualifications = st.text_area(
-    "Preferred Qualifications", 
-    value=st.session_state.get("req_pref", "AWS certification, Django experience"),
-    key="input_pref"
-)
-other_preferences = st.text_area(
-    "Other Job-Related Preferences", 
-    value=st.session_state.get("req_other", "Experience working with Agile teams"),
-    key="input_other"
-)
-
-if st.button("Save criteria", type="primary"):
-    st.session_state["criteria"] = {
-        "required_education": required_education.strip() or "No specific education requirement",
-        "minimum_years_experience": int(minimum_years),
-        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
-        "preferred_qualifications": preferred_qualifications.strip() or "None",
-        "other_job_related_preferences": other_preferences.strip() or "None",
-    }
-    st.success("Criteria saved successfully! Upload CVs below.")
-
-# Always default criteria if not explicitly set yet so the uploader stays visible
-if "criteria" not in st.session_state:
-    st.session_state["criteria"] = {
-        "required_education": required_education.strip() or "No specific education requirement",
-        "minimum_years_experience": int(minimum_years),
-        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
-        "preferred_qualifications": preferred_qualifications.strip() or "None",
-        "other_job_related_preferences": other_preferences.strip() or "None",
-    }
+            if ("503" in str(e) or "429" in str(e)) and attempt
