@@ -11,7 +11,7 @@ from docx import Document
 from google import genai
 from google.genai import types
 
-MODEL_NAME = "gemini-3.8-flash"
+MODEL_NAME = "gemini-1.5-flash"
 MAX_FILE_MB = 15
 
 st.set_page_config(page_title="AI CV Screening", page_icon="📄", layout="wide")
