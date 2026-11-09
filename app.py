@@ -155,6 +155,55 @@ def analyse_cv(client, criteria: dict, cv_text: str, filename: str) -> dict[str,
     if not match:
         raise ValueError("The AI returned an unreadable result. Please retry this CV.")
     data = json.loads(match.group(0))
+    
     required = [
         "candidate_name", "education", "total_experience_years",
-        "relevant_experience", "preferences","
+        "relevant_experience", "preferences", "overall_match", "reason", "evidence"
+    ]
+    
+    for field in required:
+        if field not in data:
+            data[field] = "Not Found"
+    allowed = {"Matched", "Not Matched", "Not Found"}
+    for field in ("education", "relevant_experience", "preferences"):
+        if data[field] not in allowed:
+            data[field] = "Not Found"
+    if data["overall_match"] not in {"Yes", "No"}:
+        data["overall_match"] = "No"
+    return data
+
+with st.form("criteria_form"):
+    st.subheader("1. Enter job requirements")
+    required_education = st.text_input(
+        "Required Education", placeholder="e.g. Bachelor's degree in Computer Science"
+    )
+    minimum_years = st.number_input(
+        "Minimum Years of Experience", min_value=0, max_value=50, value=0, step=1
+    )
+    relevant_experience = st.text_area(
+        "Relevant Experience", placeholder="e.g. At least 2 years of Python backend development"
+    )
+    preferred_qualifications = st.text_area(
+        "Preferred Qualifications", placeholder="e.g. AWS certification, Django experience"
+    )
+    other_preferences = st.text_area(
+        "Other Job-Related Preferences", placeholder="e.g. Experience working with Agile teams"
+    )
+    submitted = st.form_submit_button("Save criteria", type="primary")
+
+if submitted:
+    st.session_state["criteria"] = {
+        "required_education": required_education.strip() or "No specific education requirement",
+        "minimum_years_experience": int(minimum_years),
+        "relevant_experience": relevant_experience.strip() or "No specific relevant-experience requirement",
+        "preferred_qualifications": preferred_qualifications.strip() or "None",
+        "other_job_related_preferences": other_preferences.strip() or "None",
+    }
+    st.success("Criteria saved. Upload CVs below.")
+
+criteria = st.session_state.get("criteria")
+if criteria:
+    with st.expander("Review saved criteria", expanded=False):
+        st.json(criteria)
+
+    st.subheader("2. Upload multiple CVs")
